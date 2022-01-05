@@ -1,0 +1,78 @@
+#!/usr/bin/python
+
+import re
+import sys
+import csv
+
+# this file updates the grades csv file
+
+grades_file="grades.csv"
+new_grades_file="grades_new.csv"
+grades_column_file="grades_column.txt"
+
+grades_column = {}
+student_id_row = -1
+marks_row = -1
+lab_nr = -1
+
+def usage():
+        print('Usage: ' + sys.argv[0] + ' NR')
+        print('       NR: assignment number (must be from 1-6)')
+
+def main():
+    global student_id_row, marks_row, lab_nr
+
+    if len(sys.argv) < 2:
+        usage()
+        return
+    lab_nr = int(sys.argv[1])
+    if lab_nr < 0 or lab_nr > 6:
+        usage()
+        return
+    print('lab nr = ' + str(lab_nr))
+
+    try:
+        with open(grades_column_file) as f:
+            for l in f:
+                l = l.rstrip('\n')
+                line = re.split(r'[ ]+', l, 2)
+                mark = "{0:.1f}".format(float(line[1]))
+                grades_column[line[0]] = mark
+    except IOError as e:
+        print('error: ' + grades_column_file + ': ' + e.strerror)
+
+    # open the original and the new grades files
+    with open(grades_file, 'r') as rf:
+        csv_reader = csv.reader(rf, delimiter=',')
+        with open(new_grades_file, 'wb') as wf:
+            csv_writer = csv.writer(wf, delimiter=',', lineterminator='\n')
+            first_line = 1
+            for row in csv_reader:
+                if first_line == 1:
+                    first_line = 0
+                    for idx, elem in enumerate(row):
+                        if elem == 'SIS Login ID':
+                            student_id_row = idx
+                        if re.match('^Lab ' + str(lab_nr) + \
+                                    ' Assignment', elem):
+                            marks_row = idx
+                    if (student_id_row == -1):
+                        print("student_id_row not found")
+                        return
+                    else:
+                        print("student_id_row = " + str(student_id_row))
+                    if (marks_row == -1):
+                        print("marks not found")
+                        return
+                    else:
+                        print("marks_row = " + str(marks_row))
+                    csv_writer.writerow(row)
+                else:
+                    student_id = row[student_id_row]
+                    if student_id in grades_column:
+                        # update mark
+                        row[marks_row] = grades_column[student_id]
+                    csv_writer.writerow(row)
+
+if __name__ == "__main__":
+        main()

@@ -1,0 +1,83 @@
+#!/usr/bin/python
+#
+# ugtop.py
+#
+# find a low utilization machine within the ug cluster
+#
+# Author: Kuei (Jack) Sun <kuei.sun@mail.utoronto.ca>
+#
+# University of Toronto
+# 2016
+#
+
+import sys
+import re
+import time
+from subprocess import Popen, PIPE
+
+ugnums = range(51, 75+1) + range(132, 180+1) + range(201, 250+1)
+
+outputs = {}
+poutputs = {}
+
+result = list()
+
+# look for output of top
+top_regexp = re.compile(r"(\d+)\s+users*,\s+load average:\s+(\d+\.\d+),\s+(\d+\.\d+),\s+(\d+\.\d+)")
+
+def run_processes():
+    next_print = 0
+    command = "top -b -n 1 | head -n 1"
+    # run ssh command on each machine
+    print 'starting processes on %d machines' % len(ugnums)
+    running_processes = [(Popen(['ssh ug%d ' %num + ' ' + command], \
+                                stdout=PIPE, stderr=PIPE, shell=True),
+                          num) for num in ugnums]
+    print 'started all processes'
+    while running_processes:
+        for process in running_processes:
+            (proc, num) = process
+            retcode = proc.poll()
+            if retcode is not None:
+                # process finished
+                running_processes.remove(process)
+                if retcode == 0:
+                    err = proc.stderr.read()
+                    if err: # process generated some err
+                        err = err.rstrip('\n')
+                        print >> sys.stderr, err
+                    else:
+                        handle_output(process)
+                else: # some error returned
+                    print >> sys.stderr, \
+                        'ug' + str(num) + ': retcode = ' + str(retcode)
+                break
+
+# handle the output of the process
+def handle_output(process):
+    (proc, num) = process
+    # the process should only produce one line of output
+    while True:
+        line = proc.stdout.readline()
+        if line == b'':
+            break;
+        line = line.rstrip('\n')
+        match = top_regexp.search(line)
+        if match:
+            users = match.group(1)
+            load = (match.group(2), match.group(2), match.group(3))
+            entry = (int(users), max([float(v) for v in load]), num)
+            result.append(entry)
+        else:
+            # shouldn't happen
+            print >> sys.stderr, 'nomatch: ' + str(num) + ': ' + line
+                        
+if __name__ == "__main__":
+    run_processes()
+    # result is sorted, first by lowest number of users,
+    # and then from lowest load to highest
+    # to change the sorting order, change the "entry = ..." above
+    result.sort()
+    for i in xrange(min([10, len(result)])):
+        users, util, num = result[i]
+        print "ug{0:<3d}: users: {1:3d}, load average: {2:.2f}".format(num, users, util)

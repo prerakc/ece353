@@ -1,0 +1,97 @@
+#!/bin/bash
+
+TESTER_PATH=$(dirname $(readlink -f $BASH_SOURCE))
+. $TESTER_PATH/setup
+
+function usage() {
+    echo "Usage: $PROG [-h] [-s start] [-e end] lab_nr" 1>&2;
+    echo "       -h: show this message" 1>&2;
+    echo " -s start: generate mail starting from group 'start'" 1>&2;
+    echo "   -e end: generate mail until group 'end'" 1>&2;
+    echo "   lab_nr: generate mail for lab number (1-6)" 1>&2;
+    exit 1;
+}
+
+while getopts "hs:e:" ARG ; do
+    if [ ${ARG} = 'h' ]; then
+        usage;
+    elif [ ${ARG} = 's' ]; then
+        START=$OPTARG;
+        if ! [[ "$START" =~ ^[0-9]+$ ]] ; then
+            usage;
+        fi
+    elif [ ${ARG} = 'e' ]; then
+        END=$OPTARG;
+        if ! [[ "$END" =~ ^[0-9]+$ ]] ; then
+            usage;
+        fi
+    else
+        usage;
+    fi
+done
+
+shift $((OPTIND-1))
+
+if [ $# -ne 1 ]; then
+    usage;
+fi
+
+NR=$1
+
+# checks if $NR lies between 1-6 (TOTAL_XX specified in setup)
+if [ -z $(eval echo \$TOTAL_$NR) ]; then
+    echo "Bad lab number: $NR" 
+    usage;
+fi
+
+if [ ! -f "${GRADES_FILE}" ]; then
+	echo "Grades file ${GRADES_FILE} not found" 1>&2
+	exit 1
+fi
+
+# rename old mbox file, if it exists
+if [ -e mail-$NR.mbox ]; then
+    mv mail-$NR.mbox mail-$NR.mbox.old
+fi
+
+for GROUP in $(seq -f "%03g" ${START} ${END}); do
+    get_marks $NR "tester-${GROUP}.out"
+    cat <<EOF > msg.txt
+
+Dear Group ${GROUP},
+
+Your submission for Lab $NR has been marked.
+
+"You have received $MARKS marks out of a total of $TOTAL marks."
+
+Please see the attached files for details.
+
+Please contact $TA with any questions.
+
+EOF
+    EMAILS=""
+    for LOGINID in $(grep "^os-${GROUP}" /etc/group | cut -d ":" -f 4 | \
+        sed 's/,/ /g'); do
+        LINE=$(grep ${LOGINID} ${GRADES_FILE}) 2> /dev/null;
+        if [ -n "$LINE" ]; then
+            # EMAIL=$(echo $LINE | awk -F, '{printf "%s", $5}');
+	    EMAIL=${LOGINID}@ecf.utoronto.ca
+            if [ -z "$EMAILS" ]; then
+                EMAILS="$EMAIL"
+            else
+                EMAILS="$EMAILS, $EMAIL"
+            fi
+        fi
+    done
+
+    if [ -n "$EMAILS" ]; then
+        ${TESTER_PATH}/generate-one-mail -t "$TA" -m "$EMAILS" -f msg.txt \
+            -a $NR -g ${GROUP}
+    else
+        echo "Warning: cannot find e-mail address for Group ${GROUP}"
+    fi
+done
+
+rm msg.txt
+
+exit 0

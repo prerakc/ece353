@@ -1,0 +1,86 @@
+#!/bin/bash
+
+# This file has variables that are sourced by other scripts in this directory
+
+# change the install path to where the ece353 tester is installed
+INSTALL_PATH=/cad2/ece353s
+SRC_PATH=${INSTALL_PATH}/src
+SCRIPTS_PATH=${INSTALL_PATH}/tester/scripts
+
+#setup the path, making sure that our path is first
+export PATH=${INSTALL_PATH}/bin:/usr/local/bin:/local/bin:/usr/bin:/bin
+
+# Head TA
+# TA="Mike Qin <mikeandmore@gmail.com>"
+# TA="Jack Sun <kuei.sun@utoronto.ca>"
+TA="Sari Sultan <sari.sultan@mail.utoronto.ca>"
+
+# git repo path
+# GIT_REP=ssh://ug250.eecg.utoronto.ca/srv/git
+GIT_REP=ssh://ug250.eecg.utoronto.ca/srv/ece353s
+
+# starting number of student groups
+START=1
+
+# ending number of student groups
+END=210
+
+# name of grades files
+GRADES_FILE=grades.csv
+
+# Marks for each lab
+# Update these marks if the scripts are updated
+
+TOTAL_1=40
+TOTAL_2=54
+TOTAL_3=90
+TOTAL_4=48
+TOTAL_5=16
+TOTAL_6=40
+
+# Source path for each lab
+SRC_1=${SRC_PATH}/warmup.tar
+SRC_2=${SRC_PATH}/threads.tar
+SRC_3=${SRC_PATH}/threads.tar
+SRC_4=${SRC_PATH}/webserver.tar
+SRC_5=${SRC_PATH}/webserver.tar
+SRC_6=${SRC_PATH}/fs.tar
+
+DIR_1=warmup
+DIR_2=threads
+DIR_3=threads
+DIR_4=webserver
+DIR_5=webserver
+DIR_6=fs
+
+# Files to checkout from student repository for each lab
+# FILES_1="warmup/fact.c warmup/hello.c warmup/point.c warmup/sorted_points.c warmup/wc.c warmup/words.c"
+FILES_1="warmup/fact.c warmup/hello.c warmup/point.c warmup/wc.c warmup/words.c warmup/cpr.c"
+FILES_2="threads/show_ucontext.c threads/thread.c"
+FILES_3="threads/thread.c"
+FILES_4="webserver/server_thread.c"
+FILES_5="webserver/server_thread.c"
+FILES_6="fs/read_write.c"
+
+# common functions
+
+# sets global variables MARKS and TOTAL
+function get_marks() {
+    NR=$1
+    MARKS_FILE=$2
+
+    # TOTAL from above
+    TOTAL=$(eval echo \$TOTAL_$NR)
+    if [ -f "$MARKS_FILE" ]; then
+        MARKS=$(awk -F "," 'BEGIN{mark=0}{mark+=$2}END{printf "%s", mark}' $MARKS_FILE)
+        SUM=$(awk -F "," 'BEGIN{sum=0}{sum+=$3}END{printf "%s", sum}' $MARKS_FILE)
+        if [ "$SUM" -ne "$TOTAL" ]; then
+            echo "Sum: $SUM != Total: $TOTAL" 1>&2;
+        fi
+    else
+        MARKS=""
+    fi
+    if [ -z "$MARKS" ]; then
+        MARKS=0
+    fi
+}

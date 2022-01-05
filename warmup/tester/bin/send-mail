@@ -1,0 +1,52 @@
+#!/bin/bash
+
+TESTER_PATH=$(dirname $(readlink -f $BASH_SOURCE))
+. $TESTER_PATH/setup
+
+function usage() {
+    echo "Usage: $PROG [-h] lab_nr" 1>&2;
+    echo "       -h: show this message" 1>&2;
+    echo "   lab_nr: generate mail for lab number (1-6)" 1>&2;
+    exit 1;
+}
+
+while getopts "hs:e:" ARG ; do
+    if [ ${ARG} = 'h' ]; then
+        usage;
+    else
+        usage;
+    fi
+done
+
+shift $((OPTIND-1))
+
+if [ $# -ne 1 ]; then
+    usage;
+fi
+
+NR=$1
+
+# checks if $NR lies between 1-6 (TOTAL_XX specified in setup)
+if [ -z $(eval echo \$TOTAL_$NR) ]; then
+    echo "Bad lab number: $NR" 
+    usage;
+fi
+
+if [ ! -s mail-$NR.mbox ]; then
+    echo "mail-$NR.mbox does not exist" 1>&2;
+    echo "use generate-mail to create this file" 1>&2;
+    exit 1;
+fi
+
+# this command will generate several files with the name xx00, xx01, ...
+csplit mail-$NR.mbox '/From MAILER-DAEMON/' '{*}' > /dev/null
+
+for i in xx*; do
+    # if file exists and its size is greater than zero
+    if [ -s $i ]; then
+        cat $i | /usr/sbin/sendmail -t
+    fi
+done
+
+rm -f xx*
+exit 0

@@ -1,0 +1,209 @@
+#!/bin/bash
+
+TESTER_PATH=$(dirname $(readlink -f $BASH_SOURCE))
+. $TESTER_PATH/setup
+
+PROG=$(basename $0)
+
+function usage() {
+    echo "Usage: $PROG [-hvVmdc] [-s start] [-e end] lab_nr" 1>&2;
+    echo "       -h: show this message" 1>&2;
+    echo "       -v: verbose" 1>&2;
+    echo "       -m: run marker" 1>&2;
+    echo " -s start: run marker starting from group 'start'" 1>&2;
+    echo "   -e end: run marker until group 'end'" 1>&2;
+    echo "       -d: don't checkout code (must come after -m)" 1>&2;
+    echo "       -c: only checkout code (must come after -m)" 1>&2;
+    echo "   lab_nr: run test on lab number (1-6)" 1>&2
+    exit 1;
+}
+
+# getopts processing
+while getopts "hvVmdcs:e:" ARG ; do
+    if [ ${ARG} = 'h' ]; then
+        usage;
+    elif [ ${ARG} = 'v' ]; then
+        VERBOSE="-v";
+    elif [ ${ARG} = 'm' ]; then
+        MARKER=1;
+    elif [ ${ARG} = 'd' ]; then
+        if [ -z "$MARKER" ]; then
+            usage;
+        fi
+        NO_CHECKOUT=1;
+    elif [ ${ARG} = 'c' ]; then
+        if [ -z "$MARKER" ]; then
+            usage;
+        fi
+        CHECKOUT_ONLY=1;
+    elif [ ${ARG} = 's' ]; then
+        if [ -z "$MARKER" ]; then
+            usage;
+        fi
+        START=$OPTARG;
+        if ! [[ "$START" =~ ^[0-9]+$ ]] ; then
+            usage;
+        fi
+    elif [ ${ARG} = 'e' ]; then
+        if [ -z "$MARKER" ]; then
+            usage;
+        fi
+        END=$OPTARG;
+        if ! [[ "$END" =~ ^[0-9]+$ ]] ; then
+            usage;
+        fi
+    else
+        usage;
+    fi
+done
+
+shift $((OPTIND-1))
+
+if [ $# -ne 1 ]; then
+    usage;
+fi
+
+NR=$1
+
+# checks if $1 lies between 1-6 (TOTAL_XX specified in setup)
+if [ -z $(eval echo \$TOTAL_$NR) ]; then
+    echo "Bad lab number: $NR" 
+    usage;
+fi
+
+if [ -n "$CHECKOUT_ONLY" -a -n "$NO_CHECKOUT" ]; then
+    echo "error: don't checkout and don't mark any assignment?"
+    echo
+    usage;
+fi
+
+# run tests for a given lab
+ece353_tester() {
+    NR="$1"
+    /bin/rm -f tester.log
+    /bin/rm -f tester*.out
+
+    for test in ${SCRIPTS_PATH}/lab${NR}*.py; do
+        if [ -x $test ]; then
+            echo "Running: $test $VERBOSE";
+            $test $VERBOSE;
+            echo
+        fi
+    done
+
+    # parse the marks file
+    get_marks $NR "tester.out"
+    echo "You have received $MARKS marks out of a total of $TOTAL marks."
+    return 0;
+}
+
+# this will get data from the git repository only
+ece353_cloner() {
+    NR="$1"
+    GROUP="$2"
+
+    # get the original source code
+    SRC=$(eval echo \$SRC_$NR)
+    tar -xf $SRC
+
+    # get the student files from their git repository
+    FILES=$(eval echo \$FILES_$NR)
+    git archive --remote ${GIT_REP}/ss-${GROUP}/ece353 Lab${NR}-end $FILES | tar xf -
+    # make sure that the checkout is successful
+    if [ $? -ne 0 ]; then
+        echo "git checkout was not successful" 1>&2;
+        return 1;
+    fi
+    
+    return 0
+}
+
+# this will run the marker, i.e., build and then run the tester programs.
+# it assumes the above is complete
+ece353_marker() {
+    NR="$1"
+    GROUP="$2"
+    
+    # cd to the relevant directory
+    DIR=$(eval echo \$DIR_$NR)
+    cd $DIR
+
+    # compile code
+    make
+    if [ $? -ne 0 ]; then
+        echo "make was not successful" 1>&2;
+        return 1;
+    fi
+
+    # run the tester
+    ece353_tester ${NR}
+
+    if [ -f "tester.log" ]; then
+        /bin/cp tester.log ../../tester-${GROUP}.log
+    else
+        echo "tester.log not found" 1>&2;
+    fi
+    if [ -f "tester.out" ]; then
+        /bin/cp tester.out ../../tester-${GROUP}.out
+    else
+        echo "tester.out not found" 1>&2;
+    fi
+
+    return 0;
+}
+
+echo "Running tests for Lab $NR";
+
+if [ -z "$MARKER" ]; then
+    # run tester directly
+    echo "Output being sent to tester.log, tester.out"
+    ece353_tester $NR
+else
+    LIST=''
+    if [ -z "$NO_CHECKOUT" ]; then
+        # download each student's code first
+        for GROUP in $(seq -f "%03g" ${START} ${END}); do
+            # do we have access to the repository?
+            # students will have access to only their repository
+            if expr "$(groups)" : ".*ss-${GROUP}" > /dev/null; then
+                 echo -n "ss-${GROUP}: retrieving source code... "
+                # remember current dir
+                pushd . > /dev/null
+
+		# this is to ensure that rm below works in the first lab,
+		# which creates a readonly dir
+		chmod -f 755 ss-${GROUP}/warmup/tester/scripts/readonlydir
+                # create a new directory for the group
+                /bin/rm -rf ss-${GROUP} && mkdir -p ss-${GROUP} && cd ss-${GROUP}
+                ece353_cloner $NR $GROUP > ../marker-${GROUP}.log 2>&1
+                if [ $? -ne 0 ]; then
+                    echo "failed." 1>&2
+                else
+                    echo "done."
+                    LIST="$LIST $GROUP"
+                fi
+                # pop back to top dir
+                popd > /dev/null
+            fi
+        done
+    else
+        # just make a list from start to finish
+        LIST=$(seq -f "%03g" ${START} ${END})
+    fi      
+      
+    # now run the marker for each student whose submission succeeded
+    if [ -z "$CHECKOUT_ONLY" -a -n "${LIST}" ]; then 
+        for GROUP in ${LIST}; do
+	    if [ ! -d ss-${GROUP} ]; then
+		echo "ss-${GROUP} directory does not exist" 1>&2
+		continue
+	    fi
+            echo "ss-${GROUP}: output files: marker-${GROUP}.log, tester-${GROUP}.log, tester-${GROUP}.out"
+            pushd ss-${GROUP} > /dev/null
+            ece353_marker $NR $GROUP >> ../marker-${GROUP}.log 2>&1
+            popd > /dev/null
+        done
+    fi
+fi
+
+exit 0

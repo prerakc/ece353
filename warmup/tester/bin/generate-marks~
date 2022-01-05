@@ -1,0 +1,84 @@
+#!/bin/bash
+
+TESTER_PATH=$(dirname $(readlink -f $BASH_SOURCE))
+. $TESTER_PATH/setup
+
+function usage() {
+    echo "Usage: $PROG [-h] [-s start] [-e end] lab_nr" 1>&2;
+    echo "       -h: show this message" 1>&2;
+    echo " -s start: generate mail starting from group 'start'" 1>&2;
+    echo "   -e end: generate mail until group 'end'" 1>&2;
+    echo "   lab_nr: generate mail for lab number (1-6)" 1>&2;
+    exit 1;
+}
+
+while getopts "hs:e:" ARG ; do
+    if [ ${ARG} = 'h' ]; then
+        usage;
+    elif [ ${ARG} = 's' ]; then
+        START=$OPTARG;
+        if ! [[ "$START" =~ ^[0-9]+$ ]] ; then
+            usage;
+        fi
+    elif [ ${ARG} = 'e' ]; then
+        END=$OPTARG;
+        if ! [[ "$END" =~ ^[0-9]+$ ]] ; then
+            usage;
+        fi
+    else
+        usage;
+    fi
+done
+
+shift $((OPTIND-1))
+
+if [ $# -ne 1 ]; then
+    usage;
+fi
+
+NR=$1
+
+# checks if $NR lies between 1-6 (TOTAL_XX specified in setup)
+if [ -z $(eval echo \$TOTAL_$NR) ]; then
+    echo "Bad lab number: $NR" 
+    usage;
+fi
+
+GRADES_COLUMN_FILE=grades_column.txt
+
+if [ ! -f "${GRADES_FILE}" ]; then
+	echo "Grades file ${GRADES_FILE} not found" 1>&2
+	exit 1
+fi
+
+COUNT=0
+
+rm -f ${GRADES_COLUMN_FILE}
+
+for GROUP in $(seq -f "%03g" ${START} ${END}); do
+    get_marks $NR "tester-${GROUP}.out"
+    for LOGINID in $(grep "^os-${GROUP}" /etc/group | cut -d ":" -f 4 | \
+        sed 's/,/ /g'); do
+        LINE=$(grep ${LOGINID} ${GRADES_FILE}) 2> /dev/null;
+        if [ -n "$LINE" ]; then
+            COUNT=$((COUNT+1))
+	    echo ${LOGINID} ${MARKS} >> ${GRADES_COLUMN_FILE}
+        fi
+    done
+done
+
+
+
+
+echo "${COUNT} students grades have been updated in ${GRADES_COLUMN_FILE}"
+NUM_ENTRIES=$(awk 'END {printf NR}' ${GRADES_FILE})
+
+# remove header
+NUM_ENTRIES=$[NUM_ENTRIES-1]
+
+echo "${NUM_ENTRIES} entries have been detected"
+if [ $COUNT -ne $NUM_ENTRIES ]; then
+    DIFF=$((NUM_ENTRIES-COUNT))
+    echo "$DIFF student(s) did not receive their grade"
+fi
+exit 0

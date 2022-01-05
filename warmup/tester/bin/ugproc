@@ -1,0 +1,56 @@
+#!/usr/bin/python
+#
+# ugproc
+#
+# find my processes
+#
+
+import sys
+import re
+import time
+from subprocess import Popen, PIPE
+
+ugnums = range(51, 75+1) + range(132, 180+1) + range(201, 250+1)
+
+result = {}
+
+def run_processes():
+    next_print = 0
+    command = "ps hux | grep -v ssh | grep -v ps | grep -v systemd | grep -v sd-pam"
+    # run ssh command on each machine
+    print 'starting processes on %d machines' % len(ugnums)
+    running_processes = [(Popen(['ssh ug%d ' %num + ' ' + command], \
+                                stdout=PIPE, stderr=PIPE, shell=True),
+                          num) for num in ugnums]
+    print 'started all processes'
+    while running_processes:
+        for process in running_processes:
+            (proc, num) = process
+            retcode = proc.poll()
+            if retcode is not None:
+                # process finished
+                running_processes.remove(process)
+                if retcode == 0:
+                    err = proc.stderr.read()
+                    if err: # process generated some err
+                        err = err.rstrip('\n')
+                        print >> sys.stderr, err
+                    else:
+                        handle_output(process)
+                break
+
+# handle the output of the process
+def handle_output(process):
+    (proc, num) = process
+    # the process should only produce one line of output
+    while True:
+        line = proc.stdout.readline()
+        if line == b'':
+            break;
+        line = line.rstrip('\n')
+        result[num] = 1
+                        
+if __name__ == "__main__":
+    run_processes()
+    for k, v in result.items():
+        print k
